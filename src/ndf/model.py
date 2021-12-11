@@ -115,11 +115,17 @@ class NeuralDecisionForest(nn.Module):
         self.feature_layer = feature_layer
         self.forest = forest
 
-    def forward(self, x):
-        out = self.feature_layer(x)
-        out = out.view(x.size()[0], -1)
+    def forward(self, args):
+        out = self.feature_layer(*args)
+        out = out.view(args[0].size()[0], -1)
         out = self.forest(out)
         return out
+
+    def save(self, path):
+        torch.save(self.state_dict(), path)
+
+    def load(self, path):
+        self.load_state_dict(torch.load(path))
 
 
 if __name__ == "__main__":
