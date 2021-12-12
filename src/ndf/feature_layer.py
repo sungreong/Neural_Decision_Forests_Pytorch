@@ -125,7 +125,13 @@ class NumericEmbeddingLayer(Base):
         self.output_dim = 0
         for cat in cat_list:
             emb_dim = 4 if cat.unique_n > 4 else cat.unique_n
-            embedding_list.append([f"{cat.position}", nn.Embedding(cat.unique_n, emb_dim)])
+            emb = nn.Embedding(cat.unique_n, emb_dim)
+            if cat.unique_n > 4:
+                pass
+            else:
+                emb.weight.data.fill_(1)
+                emb.requires_grad_(requires_grad=False)
+            embedding_list.append([f"{cat.position}", emb])
             self.output_dim += emb_dim
 
         self.embedding_dict = nn.ModuleDict(embedding_list)
