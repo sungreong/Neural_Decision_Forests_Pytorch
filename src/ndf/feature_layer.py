@@ -55,20 +55,20 @@ class FeedForward(Base):
         return self.output_dim
 
 
-def embedding_layer(embedding_dict: nn.ModuleDict, x: np.ndarray):
+def embedding_layer(embedding_list: nn.ModuleList, x: np.ndarray):
     embedding_result = []
-    for i in list(embedding_dict):
+    for i , emb in enumerate(embedding_list):
         if isinstance(x, (np.ndarray,)):
             tensor = torch.LongTensor(x[:, int(i)])
         elif isinstance(x, (torch.Tensor,)):
-            tensor = x[:, int(i)].long()
-        embed_v = embedding_dict[i](tensor)
+            tensor = x[:, i].long()
+        embed_v = emb(tensor)
         embedding_result.append(embed_v)
     else:
         return torch.cat(embedding_result, axis=1)
 
 
-@dataclass(frozen=True, order=True, unsafe_hash=True)
+@dataclass(frozen=True)
 class Category:
     position: int
     name: str
@@ -80,6 +80,7 @@ class Category:
 def make_category_list(df, cat_cols):
     cat_list = []
     for idx, col in enumerate(cat_cols):
+        
         encoder = LabelEncoder()
         encoder.fit(df[col])
         cat = Category(
@@ -87,62 +88,71 @@ def make_category_list(df, cat_cols):
         )
         cat_list.append(cat)
     else:
-        cat_list = sorted(cat_list, key=operator.attrgetter("position"))
-        return cat_list
+        pass
+        #cat_list = sorted(cat_list, key=operator.attrgetter("position"))
+    return cat_list
 
 
-class CategoryEmbeddingLayer(Base):
+class CategoryEmbeddingLayer(nn.Module):
     def __init__(
         self,
         cat_list,
     ):
         super(CategoryEmbeddingLayer, self).__init__()
-        embedding_list = []
+        self.module_list = torch.nn.ModuleList([])
+                                           
         self.output_dim = 0
         for cat in cat_list:
-            emb_dim = 4 if cat.unique_n > 4 else cat.unique_n
-            embedding_list.append([f"{cat.position}", nn.Embedding(cat.unique_n, emb_dim)])
-            self.output_dim += emb_dim
-
-        self.embedding_dict = nn.ModuleDict(embedding_list)
-
-    def __call__(self, x):
-        return embedding_layer(self.embedding_dict, x)
-
-    def get_out_feature_size(
-        self,
-    ):
-        return self.output_dim
-
-
-class NumericEmbeddingLayer(Base):
-    def __init__(
-        self,
-        cat_list,
-    ):
-        super(NumericEmbeddingLayer, self).__init__()
-        embedding_list = []
-        self.output_dim = 0
-        for cat in cat_list:
-            emb_dim = 4 if cat.unique_n > 4 else cat.unique_n
+            emb_dim = int(np.ceil(np.sqrt(cat.unique_n))) if cat.unique_n > 4 else cat.unique_n
             emb = nn.Embedding(cat.unique_n, emb_dim)
             if cat.unique_n > 4:
                 pass
             else:
                 emb.weight.data.fill_(1)
                 emb.requires_grad_(requires_grad=False)
-            embedding_list.append([f"{cat.position}", emb])
+            self.module_list.append(emb)
             self.output_dim += emb_dim
+            
 
-        self.embedding_dict = nn.ModuleDict(embedding_list)
+            
 
     def __call__(self, x):
-        return embedding_layer(self.embedding_dict, x)
+        return embedding_layer(self.module_list, x)
 
     def get_out_feature_size(
         self,
     ):
         return self.output_dim
+
+
+# class NumericEmbeddingLayer(Base):
+#     def __init__(
+#         self,
+#         cat_list,
+#     ):
+#         super(NumericEmbeddingLayer, self).__init__()
+#         embedding_list = []
+#         self.output_dim = 0
+#         for cat in cat_list:
+#             emb_dim = 4 if cat.unique_n > 4 else cat.unique_n
+#             emb = nn.Embedding(cat.unique_n, emb_dim)
+#             if cat.unique_n > 4:
+#                 pass
+#             else:
+#                 emb.weight.data.fill_(1)
+#                 emb.requires_grad_(requires_grad=False)
+#             embedding_list.append([f"{cat.position}", emb])
+#             self.output_dim += emb_dim
+
+#         self.embedding_dict = nn.ModuleDict(embedding_list)
+
+#     def __call__(self, x):
+#         return embedding_layer(self.embedding_dict, x)
+
+#     def get_out_feature_size(
+#         self,
+#     ):
+#         return self.output_dim
 
 
 @dataclass(frozen=True, order=True, unsafe_hash=True)
@@ -160,7 +170,6 @@ class TabularLayer(Base):
 
         self.num_emb_layer = make_linear_model(**asdict(num_info))
         self.cat_emb_layer = CategoryEmbeddingLayer(cat_list)
-
         self.output_dim = self.cat_emb_layer.output_dim + num_info.output_dim
         self.add_module("numeric", self.num_emb_layer)
         self.add_module("category", self.cat_emb_layer)

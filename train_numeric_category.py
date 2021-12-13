@@ -15,6 +15,7 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from pathlib import Path
 import numpy as np
+from tqdm import tqdm
 
 data_dir = Path("./data")
 df = pd.read_csv(data_dir.joinpath("./adult_train.csv"))
@@ -28,7 +29,7 @@ target_col = ["income_bracket"]
 
 num_cols = list(df.select_dtypes("number"))
 target_col = ["income_bracket"]
-cat_cols = list(set(list(df.columns)).difference(set(num_cols + target_col)))
+cat_cols = sorted(list(set(list(df.columns)).difference(set(num_cols + target_col))))
 total_cols = num_cols + target_col
 data = df[total_cols]
 y = df[target_col]
@@ -44,10 +45,8 @@ testY = test[target_col]
 cat_cols = list(catX)
 cat_list = make_category_list(catX, cat_cols)
 
-
 num_info = Numeric(input_dim=numX.shape[1], output_dim=10, activation="relu", last_logit=True, layers=[25])
 tabularLayer = TabularLayer(num_info, cat_list)
-
 
 feature_layer = tabularLayer
 feature_dim = tabularLayer.output_dim
@@ -76,9 +75,11 @@ def train(model, optim, dataset, testdataset, **kwargs):
     test_metrics = ClassificationMetric(metric_kwargs=dict(num_classes=2))
     save_dir = kwargs.get("save_dir", "./")
     BEST_LOSS = np.inf
+    trainloader = DataLoader(dataset, batch_size=kwargs.get("batch_size", 32), shuffle=kwargs.get("shuffle", True))
+    evalloader = DataLoader(dataset, batch_size=kwargs.get("batch_size", 32), shuffle=False)
+    pbar = tqdm(total=kwargs.get("n_epoch", 100))
     for epoch in range(0, kwargs.get("n_epoch", 100)):
         model.train()
-        trainloader = DataLoader(dataset, batch_size=kwargs.get("batch_size", 32), shuffle=kwargs.get("shuffle", True))
         Loss = []
         metric.reset()
         for batch_idx, (*batch_x, batch_y) in enumerate(trainloader):
@@ -94,22 +95,24 @@ def train(model, optim, dataset, testdataset, **kwargs):
             f1 = metric.compute()
             result = train_metrics.compute()
             train_metrics.log(result)
-            Loss_Collection["loss"].append(np.mean(Loss))
+            mean_loss = np.mean(Loss)
+            Loss_Collection["loss"].append(mean_loss)
             Loss_Collection["train"].append(f1 * 100)
             if BEST_LOSS > np.mean(Loss):
                 BEST_LOSS = np.mean(Loss)
                 model.save(save_dir.joinpath("./model.pt"))
                 torch.save(optim.state_dict(), save_dir.joinpath("./optim.pt"))
+            pbar.set_description(f"{mean_loss:.3f}/({BEST_LOSS:.3f})")
+            pbar.update(1)
 
         if epoch % kwargs.get("n_log", 5) == 0:
             clear_output(wait=True)
-            evalloader = DataLoader(dataset, batch_size=kwargs.get("batch_size", 32), shuffle=False)
-
             metric.reset()
             model.eval()
             test_metrics.reset()
             for batch_idx, (*batch_x, batch_y) in enumerate(evalloader):
-                output = model(batch_x)
+                with torch.no_grad():
+                    output = model(batch_x)
                 metric(output, batch_y.squeeze().long())
                 test_metrics.update(output, batch_y.squeeze().long())
             else:
@@ -147,8 +150,8 @@ def train(model, optim, dataset, testdataset, **kwargs):
 
 save_dir = Path("./model_v2")
 save_dir.mkdir(exist_ok=True)
-# nnForest.load(save_dir.joinpath("./model.pt"))
-# optim.load_state_dict(torch.load(save_dir.joinpath("./optim.pt")))
+nnForest.load(save_dir.joinpath("./model.pt"))
+optim.load_state_dict(torch.load(save_dir.joinpath("./optim.pt")))
 train(
     nnForest,
     optim,

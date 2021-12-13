@@ -1,3 +1,4 @@
+from numpy.lib.arraysetops import isin
 from torch.utils.data import Dataset
 import numpy as np
 import torch
@@ -10,7 +11,11 @@ from dataclasses import dataclass
 
 class TabularNumDataset(Dataset):
     def __init__(self, x, y):
-        self.x_numpy = x
+        if isinstance(x,(pd.DataFrame,)) :
+            self.x_numpy = x.values
+        elif isinstance(x,(np.ndarray,)) :
+            self.x_numpy = x
+            
         self.encoder = LabelEncoder()
         unique_label = set(y)
         try:
@@ -76,3 +81,139 @@ class TabularNumCatDataset(Dataset):
         x_cat = torch.LongTensor(x_cat_np)
         y = torch.FloatTensor(self.y_numpy[idx])
         return x_num, x_cat, y
+
+# slow
+class TabularBigDataSet(Dataset) :
+    ignore_idx = 0
+    
+    def __init__(self, path, total_rows):
+        self.path = path
+        self.total_rows= total_rows
+        self.total_idx_list = list(np.arange(total_rows))
+        
+        
+        
+    def __len__(self):
+        return self.total_rows
+
+    # 인덱스를 입력받아 그에 맵핑되는 입출력 데이터를 파이토치의 Tensor 형태로 리턴
+    def __getitem__(self, idx):
+        if idx == 0 :
+            idx = int(np.random.choice(self.total_idx_list, size= 1 ))
+            
+        select_rows = [self.ignore_idx] + [idx]
+            
+        skip_rows = set(self.total_idx_list).difference(set(select_rows))
+        one_row = pd.read_csv(self.path, skiprows=skip_rows)
+        return torch.FloatTensor(one_row.values)
+    
+from io import StringIO
+def load_with_buffer(filename, bool_skipped, **kwargs):
+    s_buf = StringIO()
+    with open(filename) as file:
+        count = -1
+        for line in file:
+            count += 1
+            if bool_skipped[count]:
+                continue
+            s_buf.write(line)
+    s_buf.seek(0)
+    df = pd.read_csv(s_buf, **kwargs)
+    return df
+
+# slow
+class TabularBigDataSet_v2(Dataset) :
+    
+    def __init__(self, path, total_rows):
+        self.path = path
+        self.total_rows= total_rows
+        self.total_idx_list = list(np.arange(total_rows))
+        
+        
+        
+    def __len__(self):
+        return self.total_rows
+
+    # 인덱스를 입력받아 그에 맵핑되는 입출력 데이터를 파이토치의 Tensor 형태로 리턴
+    def __getitem__(self, idx):
+        if idx == 0 :
+            idx = int(np.random.choice(self.total_idx_list, size= 1 ))
+            
+        select_rows =  [idx]
+            
+        skip_rows = set(self.total_idx_list).difference(set(select_rows))
+        skipped = np.asarray(list(skip_rows))
+        # MAX >= number of rows in the file
+        MAX = self.total_rows+1
+        bool_skipped = np.zeros(MAX, dtype=bool)
+        bool_skipped[skipped] = True
+        one_row = load_with_buffer(self.path,bool_skipped,index_col=0)
+        return torch.FloatTensor(one_row.values)
+    
+
+import random 
+
+class IndexIter  :
+    def __init__(self, idx_list , batch_size) :
+        self.batch_size = batch_size
+        idx_list.pop(0)
+        self.idx_list = idx_list
+        self.batch_count = len(idx_list) // batch_size
+        self.remain_count = len(idx_list) -  ((len(idx_list) // batch_size) * batch_size)
+        self._call_count = 0
+        self.__iter__()
+    
+    def __next__(self,) :
+        if self.batch_count <= self._call_count :
+            raise StopIteration 
+        select_idxs = self.chunks[self._call_count]
+        self._call_count += 1
+        return select_idxs
+
+    def __iter__(self,) :
+        random.shuffle(self.idx_list)
+        self.chunks = [self.idx_list[i:i+self.batch_size-1] for i in range(0, len(self.idx_list) , self.batch_size)]
+        self._call_count = 0 
+        return self 
+    
+
+class TabularBigDataSet_v3(object) :
+    ignore_idx = 0
+    
+    def __init__(self, path, total_rows, batch_size):
+        self.path = path
+        self.total_rows= total_rows
+        self.batch_size = batch_size
+        self.total_idx_list = list(np.arange(total_rows))
+        self.iterator = IndexIter(self.total_idx_list, batch_size)
+        
+        
+    def __len__(self):
+        return self.total_rows
+    
+    def reset_used_index(self,) :
+        self.used_index = []
+        
+    def get_candidate(self, ) :
+        try :
+            while True :
+                return next(self.iterator)
+                
+        except StopIteration : 
+            self.iterator = IndexIter(self.total_idx_list, self.batch_size)
+            return next(self.iterator)
+        
+    # 인덱스를 입력받아 그에 맵핑되는 입출력 데이터를 파이토치의 Tensor 형태로 리턴
+    def batch(self, ):
+        select_rows=  self.get_candidate()
+        print(len(select_rows))
+        skip_rows = set(self.total_idx_list).difference(set(select_rows))
+        skipped = np.asarray(list(skip_rows))
+        # MAX >= number of rows in the file
+        MAX = self.total_rows+1
+        bool_skipped = np.zeros(MAX, dtype=bool)
+        bool_skipped[skipped] = True
+        one_row = load_with_buffer(self.path,bool_skipped)
+        print(one_row.head())
+        print(one_row.shape)
+        return torch.FloatTensor(one_row.values)
