@@ -67,30 +67,70 @@ testdataset = TabularNumCatDataset(testNumX, testCatX, testY, cat_list)
 
 optim = prepare_optim(nnForest, 1e-5)
 
+from memory_profiler import profile 
 
+fp=open('memory_profiler.log','w+')
+
+# @profile(stream=fp)
+def foreward_loss(model , target , *input ) :
+    output = model(input)
+    loss = F.nll_loss(torch.log(output), target.squeeze().long())
+    return output , loss
+    
+
+# @profile(stream=fp)
+def update_batch(model, optim ,batch_y ,  *batch_x ) :
+    optim.zero_grad()
+    output , loss = foreward_loss(model, batch_y , *batch_x )
+    loss.backward()
+    optim.step()
+    return output , loss.detach()
+    
+@profile(stream=fp)
 def train(model, optim, dataset, testdataset, **kwargs):
     Loss_Collection = dict(train=[], test=[], loss=[])
     metric = torchmetrics.F1()
     train_metrics = ClassificationMetric(metric_kwargs=dict(num_classes=2))
     test_metrics = ClassificationMetric(metric_kwargs=dict(num_classes=2))
+    Loss = []
     save_dir = kwargs.get("save_dir", "./")
     BEST_LOSS = np.inf
-    trainloader = DataLoader(dataset, batch_size=kwargs.get("batch_size", 32), shuffle=kwargs.get("shuffle", True))
-    evalloader = DataLoader(dataset, batch_size=kwargs.get("batch_size", 32), shuffle=False)
+    trainloader = DataLoader(dataset, batch_size=kwargs.get("batch_size", 32), shuffle=kwargs.get("shuffle", True),num_workers =10)
+    evalloader = DataLoader(dataset, batch_size=kwargs.get("batch_size", 32), shuffle=False,num_workers =10)
     pbar = tqdm(total=kwargs.get("n_epoch", 100))
     for epoch in range(0, kwargs.get("n_epoch", 100)):
         model.train()
-        Loss = []
+        Loss[:] = []
         metric.reset()
+        train_metrics.reset()
+        # for batch_idx in range(10) :
+        #     *batch_x , batch_y = next(iter(trainloader))
+        #     output , loss = update_batch(model, optim ,batch_y, *batch_x ) 
+        #     Loss.append(loss.numpy())
+        #     metric(output, batch_y.squeeze().long())
+        #     train_metrics.update(output, batch_y.squeeze().long())
+        #     pbar.set_description(f"{batch_idx:02d}/({len(trainloader)})")
+        # else:
+        #     f1 = metric.compute()
+        #     result = train_metrics.compute()
+        #     train_metrics.log(result)
+        #     mean_loss = np.mean(Loss)
+        #     Loss_Collection["loss"].append(mean_loss)
+        #     Loss_Collection["train"].append(f1 * 100)
+        #     if BEST_LOSS > np.mean(Loss):
+        #         BEST_LOSS = np.mean(Loss)
+        #         model.save(save_dir.joinpath("./model.pt"))
+        #         torch.save(optim.state_dict(), save_dir.joinpath("./optim.pt"))
+        #     pbar.set_description(f"{mean_loss:.3f}/({BEST_LOSS:.3f})")
+        #     pbar.update(1)
+            
+        
         for batch_idx, (*batch_x, batch_y) in enumerate(trainloader):
-            output = model(batch_x)
-            optim.zero_grad()
-            loss = F.nll_loss(torch.log(output), batch_y.squeeze().long())
-            loss.backward()
-            optim.step()
-            Loss.append(loss.detach().numpy())
+            output , loss = update_batch(model, optim ,batch_y, *batch_x ) 
+            Loss.append(loss.numpy())
             metric(output, batch_y.squeeze().long())
             train_metrics.update(output, batch_y.squeeze().long())
+            pbar.set_description(f"{batch_idx:02d}/({len(trainloader)})")
         else:
             f1 = metric.compute()
             result = train_metrics.compute()
@@ -110,15 +150,15 @@ def train(model, optim, dataset, testdataset, **kwargs):
             metric.reset()
             model.eval()
             test_metrics.reset()
-            for batch_idx, (*batch_x, batch_y) in enumerate(evalloader):
-                with torch.no_grad():
+            with torch.no_grad():
+                for batch_idx, (*batch_x, batch_y) in enumerate(evalloader):        
                     output = model(batch_x)
-                metric(output, batch_y.squeeze().long())
-                test_metrics.update(output, batch_y.squeeze().long())
-            else:
-                result = test_metrics.compute()
-                test_metrics.log(result)
-                f1 = metric.compute()
+                    metric(output, batch_y.squeeze().long())
+                    test_metrics.update(output, batch_y.squeeze().long())
+                else:
+                    result = test_metrics.compute()
+                    test_metrics.log(result)
+                    f1 = metric.compute()
             Loss_Collection["test"].append(f1 * 100)
             total_length = 1 + len(test_metrics.history)
             figsize = 5
@@ -138,14 +178,14 @@ def train(model, optim, dataset, testdataset, **kwargs):
                 axes[figure_idx].plot(logs_iter, te_metric_result, label=f"test : {key}")
                 axes[figure_idx].set_title(key)
                 axes[figure_idx].legend(loc="upper right")
-            axes[0].set_title("Loss")
-            axes[0].legend()
-
-            if kwargs.get("save_fig", None) is not None:
-                plt.savefig(save_dir.joinpath(kwargs.get("save_fig", None)))
-                plt.close()
-            else:
-                plt.show()
+            else :
+                axes[0].set_title("Loss")
+                axes[0].legend()
+                if kwargs.get("save_fig", None) is not None:
+                    plt.savefig(save_dir.joinpath(kwargs.get("save_fig", None)))
+                    plt.close()
+                else:
+                    plt.show()
 
 
 save_dir = Path("./model_v2")
@@ -157,8 +197,8 @@ train(
     optim,
     dataset,
     testdataset,
-    batch_size=512,
-    n_epoch=100000,
+    batch_size=256,
+    n_epoch=1000000,
     save_dir=save_dir,
     save_fig="./monitor.png",
 )

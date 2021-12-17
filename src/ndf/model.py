@@ -5,7 +5,8 @@ from collections import OrderedDict
 import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
-
+from memory_profiler import profile 
+# fp=open('NeuralDecisionForest.log','w+')
 
 class Forest(nn.Module):
     def __init__(self, n_tree, tree_depth, n_in_feature, tree_feature_rate, n_class, jointly_training):
@@ -107,6 +108,7 @@ class Tree(nn.Module):
 
     def update_pi(self, new_pi):
         self.pi.data = new_pi
+
 
 
 class NeuralDecisionForest(nn.Module):

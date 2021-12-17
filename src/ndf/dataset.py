@@ -37,8 +37,14 @@ class TabularNumDataset(Dataset):
 
     # 인덱스를 입력받아 그에 맵핑되는 입출력 데이터를 파이토치의 Tensor 형태로 리턴
     def __getitem__(self, idx):
-        x = torch.FloatTensor(self.x_numpy[idx])
-        y = torch.FloatTensor(self.y_numpy[idx])
+        x = torch.from_numpy(self.x_numpy[idx]).to(dtype=torch.float32)
+        y = torch.from_numpy(self.y_numpy[idx]).to(dtype=torch.float32)
+        
+        # x = torch.from_numpy(self.x_numpy[idx].astype(np.float32)) #.to(dtype=torch.float32)
+        # y = torch.from_numpy(self.y_numpy[idx].astype(np.float32)) # .to(dtype=torch.float32)
+        
+        # x = torch.FloatTensor(self.x_numpy[idx])
+        # y = torch.FloatTensor(self.y_numpy[idx])
         return x, y
 
 
@@ -71,15 +77,21 @@ class TabularNumCatDataset(Dataset):
 
     # 인덱스를 입력받아 그에 맵핑되는 입출력 데이터를 파이토치의 Tensor 형태로 리턴
     def __getitem__(self, idx):
-        x_num = torch.FloatTensor(self.x_num_numpy[idx])
+        
         x_cat_list = []
         for cat in self.cat_list:
             x_cat_list.append(cat.encoder.transform(self.x_cat_numpy[idx][[cat.position]]))
         else:
             x_cat_np = np.array(x_cat_list).squeeze()
             # np.concatenate(x_cat_list, axis=1)
-        x_cat = torch.LongTensor(x_cat_np)
-        y = torch.FloatTensor(self.y_numpy[idx])
+        # x_cat = torch.LongTensor(x_cat_np)
+        # x_num = torch.FloatTensor(self.x_num_numpy[idx])
+        # y = torch.FloatTensor(self.y_numpy[idx])
+        
+        x_num = torch.from_numpy(self.x_num_numpy[idx]).to(dtype=torch.float32)
+        x_cat = torch.from_numpy(x_cat_np).to(dtype=torch.long)
+        y = torch.from_numpy(self.y_numpy[idx]).to(dtype=torch.float32)
+        
         return x_num, x_cat, y
 
 # slow

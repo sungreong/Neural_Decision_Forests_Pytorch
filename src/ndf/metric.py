@@ -13,6 +13,7 @@ class ClassificationMetric(object):
         ]
 
         self.metric_dict = {type(metric).__name__: metric for metric in self.metrics}
+        self.history = {k:[]  for k , v in self.metric_dict.items()}
         self.reset_log()
 
     def reset(
@@ -42,4 +43,5 @@ class ClassificationMetric(object):
     def reset_log(
         self,
     ):
-        self.history = {type(metric).__name__: [] for metric in self.metrics}
+        for _,value in self.history.items() :
+            value.clear()
